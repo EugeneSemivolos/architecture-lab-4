@@ -1,3 +1,3 @@
-module github.com/roman-mazur/design-practice-2-template
+module github.com/EugeneSemivolos/architecture-lab-4
 
 go 1.20
