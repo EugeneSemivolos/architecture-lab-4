@@ -1,48 +1,20 @@
 version: '2.1'
-networks:
-  servers:
+
 services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      args:
+        BUILDPLATFORM: linux/amd64
+    networks:
+      - servers
+    depends_on:
+      - server1
+      - server2
+      - server3
+      - balancer
 
   balancer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - DOCKER_BUILDPLATFORM=linux/amd64
-    command: "lb"
-    networks:
-      - servers
-    ports:
-      - "8090:8090"
-
-  server1:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - DOCKER_BUILDPLATFORM=linux/amd64
-    networks:
-      - servers
-    ports:
-      - "8080:8080"
-
-  server2:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - DOCKER_BUILDPLATFORM=linux/amd64
-    networks:
-      - servers
-    ports:
-      - "8081:8080"
-
-  server3:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - DOCKER_BUILDPLATFORM=linux/amd64
-    networks:
-      - servers
-    ports:
+    # Для тестів включаємо режим відлагодження, коли балансувальник додає інформацію, кому було відправлено запит.
+    command: ["lb", "--trace=true"]

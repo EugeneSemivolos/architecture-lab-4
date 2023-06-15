@@ -4,10 +4,13 @@ on:
     branches:
       - '*'
   push:
-    branches: [ main ]
+    branches:
+      - '*'
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -24,7 +27,6 @@ jobs:
         run: go build ./cmd/stats/main.go
       - name: Build Docker image
         run: docker build -t app-image .
-
 #      - name: Run tests
 #        run: docker-compose up
 
@@ -32,6 +34,7 @@ jobs:
 #        uses: docker/compose-cli@v2
 #        with:
 #          version: '1.29.2'
-#      - name: Running integration test
-#        run: |
-#          docker-compose -f docker-compose.yaml -f docker-compose.test.yaml up --exit-code-from test
+
+      - name: Running integration test
+        run: |
+          docker-compose -f docker-compose.yaml -f docker-compose.test.yaml up --exit-code-from test
