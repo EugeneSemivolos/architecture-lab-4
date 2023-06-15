@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/EugeneSemivolos/architecture-lab-4/httptools"
@@ -15,13 +16,11 @@ import (
 )
 
 var (
-	port       = flag.Int("port", 8090, "load balancer port")
-	timeoutSec = flag.Int("timeout-sec", 3, "request timeout time in seconds")
-	https      = flag.Bool("https", false, "whether backends support HTTPs")
-
+	port         = flag.Int("port", 8090, "load balancer port")
+	timeoutSec   = flag.Int("timeout-sec", 3, "request timeout time in seconds")
+	https        = flag.Bool("https", false, "whether backends support HTTPs")
 	traceEnabled = flag.Bool("trace", false, "whether to include tracing information into responses")
 )
-
 var (
 	timeout     = time.Duration(*timeoutSec) * time.Second
 	serversPool = []string{
@@ -38,7 +37,6 @@ func scheme() string {
 	}
 	return "http"
 }
-
 func health(dst string) bool {
 	ctx, _ := context.WithTimeout(context.Background(), timeout)
 	req, _ := http.NewRequestWithContext(ctx, "GET",
@@ -52,7 +50,6 @@ func health(dst string) bool {
 	}
 	return true
 }
-
 func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 	ctx, _ := context.WithTimeout(r.Context(), timeout)
 	fwdRequest := r.Clone(ctx)
@@ -60,7 +57,6 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 	fwdRequest.URL.Host = dst
 	fwdRequest.URL.Scheme = scheme()
 	fwdRequest.Host = dst
-
 	resp, err := http.DefaultClient.Do(fwdRequest)
 	if err == nil {
 		for k, values := range resp.Header {
@@ -85,48 +81,79 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 }
-
 func main() {
+	healthChecker := &HealthChecker{}
+	healthChecker.health = health
+	healthChecker.serversPool = serversPool
+	healthChecker.healthyServers = healthyServers
+	healthChecker.checkInterval = 10 * time.Second
+	balancer := &Balancer{}
+	balancer.healthChecker = healthChecker
+	balancer.forward = forward
+	balancer.Start()
+}
+
+type Balancer struct {
+	healthChecker *HealthChecker
+	forward       func(string, http.ResponseWriter, *http.Request) error
+}
+
+func (b *Balancer) GetServerIndex(url string) int {
+	hasher := fnv.New32()
+	_, _ = hasher.Write([]byte(url))
+	return int(hasher.Sum32() % uint32(len(b.healthChecker.healthyServers)))
+}
+func (b *Balancer) Start() {
 	flag.Parse()
-
-	for i, server := range serversPool {
-		server := server
-		i := i
-		go func() {
-			for range time.Tick(10 * time.Second) {
-				isHealthy := health(server)
-				if !isHealthy {
-					serversPool[i] = ""
-				} else {
-					serversPool[i] = server
-				}
-
-				healthyServers = healthyServers[:0]
-
-				for _, value := range serversPool {
-					if value != "" {
-						healthyServers = append(healthyServers, value)
-					}
-				}
-				log.Println(server, isHealthy)
-			}
-		}()
-	}
+	b.healthChecker.StartHealthCheck()
 
 	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		hasher := fnv.New32()
-		_, _ = hasher.Write([]byte(r.URL.Path))
-		sum := hasher.Sum32()
-
-		log.Println(sum)
-
-		index := sum % uint32(len(healthyServers))
-		log.Println(index)
-		_ = forward(healthyServers[index], rw, r)
+		b.healthChecker.mu.Lock()
+		index := b.GetServerIndex(r.URL.Path)
+		server := b.healthChecker.healthyServers[index]
+		b.healthChecker.mu.Unlock()
+		_ = b.forward(server, rw, r)
 	}))
 
 	log.Println("Starting load balancer...")
 	log.Printf("Tracing support enabled: %t", *traceEnabled)
 	frontend.Start()
 	signal.WaitForTerminationSignal()
+}
+
+type HealthChecker struct {
+	health         func(string) bool
+	serversPool    []string
+	healthyServers []string
+	checkInterval  time.Duration
+	mu             sync.Mutex
+}
+
+func (hc *HealthChecker) StartHealthCheck() {
+	for i, server := range hc.serversPool {
+		server := server
+		i := i
+		go func() {
+			for range time.Tick(hc.checkInterval) {
+				isHealthy := hc.health(server)
+				if !isHealthy {
+					hc.serversPool[i] = ""
+				} else {
+					hc.serversPool[i] = server
+				}
+
+				hc.mu.Lock()
+				hc.healthyServers = hc.healthyServers[:0]
+
+				for _, value := range hc.serversPool {
+					if value != "" {
+						hc.healthyServers = append(hc.healthyServers, value)
+					}
+				}
+				hc.mu.Unlock()
+
+				log.Println(server, isHealthy)
+			}
+		}()
+	}
 }
