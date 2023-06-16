@@ -60,6 +60,13 @@ func (s *IntegrationSuite) TestBalancer() {
 	assert.Equal(s.T(), server1Header, server1RepeatHeader)
 }
 
-func BenchmarkBalancer(b *testing.B) {
-	// TODO: Реалізуйте інтеграційний бенчмарк для балансувальникка.
-}
+func (s *IntegrationSuite) BenchmarkBalancer(b *testing.B) {
+	if _, exists := os.LookupEnv("INTEGRATION_TEST"); !exists {
+	  s.T().Skip("Integration test is not enabled")
+	}
+ 
+	for i := 0; i < b.N; i++ {
+	  _, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
+	  assert.NoError(s.T(), err)
+	}
+ }
