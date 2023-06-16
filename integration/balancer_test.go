@@ -20,7 +20,6 @@ type IntegrationSuite struct {
 }
 
 const baseAddress = "http://balancer:8090"
-const teamName = "im-11-go-enjoyers"
 
 var client = http.Client{
 	Timeout: 3 * time.Second,
